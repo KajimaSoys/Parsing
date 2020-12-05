@@ -1,5 +1,14 @@
 from bs4 import BeautifulSoup
 import requests
+import psycopg2
+
+t_host = "127.0.0.1"
+t_port = "5432"
+t_dbname = "FedResParsing"
+t_user = "postgres"
+t_pw = "Vagexyo687"
+db_conn = psycopg2.connect( host = t_host , port=t_port , dbname = t_dbname , user = t_user , password = t_pw )
+db_cursor = db_conn.cursor( )
 
 url = "https://bankrot.fedresurs.ru/tradeplacelist.aspx"
 headers = {
@@ -33,8 +42,6 @@ def POSTrequest(payload):
     table=soup.find('table','bank') #Берем нужную табличку
     table.find('tr', 'pager').decompose() #Удаляем ненужное
     tr=table.find_all('tr') #Ищем все тэги tr
-    #print(tr)
-
     for item in tr: #Находим нужные ссылки для дальнейшего парсинга
             if item.find('a'):
                 linkPart=item.find('a')['href']   
@@ -46,12 +53,9 @@ def POSTrequest(payload):
 def GETrequest(link):
     payload={}
     response = requests.request("GET", link, headers=headers, data=payload)
-    with open('ya.html', 'w', encoding='utf-8') as output_file:
-        output_file.write(response.text)
     data=dataParse(response)
     return data
     
-
 def dataParse(response):
     data=[]
     soup = BeautifulSoup(response.text, features="html.parser")
@@ -77,6 +81,16 @@ def dataParse(response):
         data[i]=data[i].replace('\r\n\t\t\t\t','')
     return data 
 
+def dataExport(data):
+    s = ""
+    s += "INSERT INTO tbl_tradelist"
+    s += "("
+    s += "company_name,url,sro_etp,date_of_admission,date_of_elemination,etp_name,address,id_inn,id_ogrn"
+    s += ") VALUES ("
+    s += "%s,%s,%s,%s,%s,%s,%s,%s,%s"
+    s += ")"
+    db_cursor.execute(s, data)
+    db_conn.commit()
                     
 links=[]
 dataSet=[]
@@ -84,10 +98,19 @@ data=[]
 for i in range(4):
     payload=changePage(i+1)
     POSTrequest(payload)
-#GETrequest(links[1])
-for i in range(10):
+
+for i in range(len(links)):
     data=GETrequest(links[i])
     dataSet.append(data)
-print(dataSet)
+    
+#print(dataSet)
+
+for i in range(len(dataSet)):
+    dataExport(dataSet[i])
+    
+db_cursor.close()
+db_conn.close()
+print("Парсинг прошел успешно!")
+
 #with open('ya.html', 'w', encoding='utf-8') as output_file:
 #  output_file.write(response.text)
