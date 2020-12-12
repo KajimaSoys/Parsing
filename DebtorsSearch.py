@@ -7,12 +7,16 @@ import time
 import cookiecrawler
 import csv
 
+#Очистка хранилища для бэкапа полученных данных
+#f = open("DebstorSearchBackup.csv", "w+")
+#f.close()
+
 # Параметры для бд
 t_host = "127.0.0.1"
 t_port = "5432"
 t_dbname = "FedResParsing"
 t_user = "postgres"
-t_pw = "Vagexyo687"
+t_pw = ""#password
 db_conn = psycopg2.connect(host=t_host, port=t_port, dbname=t_dbname, user=t_user, password=t_pw)
 db_cursor = db_conn.cursor()
 
@@ -37,7 +41,7 @@ headers = {
 
 # Параметры для прокси
 username = 'lum-customer-hl_1bb7049f-zone-fedres_parser'
-password = 'arens2gk6cd7'
+password = ''#password
 port = 22225
 
 
@@ -96,20 +100,19 @@ def GETrequest(link, cookie, proxy):
 def dataParse(response):
     data = []
     soup = BeautifulSoup(response.text, features="html.parser")
-    table = soup.find('table', 'au')  # Берем нужную табличку
-    table.find('tr', id='ctl00_cphBody_trFullName').decompose()
-    table.find('tr', id="ctl00_cphBody_trOkopf").decompose()
-    tr = table.find_all('span')
-    for item in tr:
-        if table.find('span', id="ctl00_cphBody_diffEgrulShortName"):
-           table.find('span', id="ctl00_cphBody_diffEgrulShortName").decompose()
-        elif table.find('span', id="ctl00_cphBody_diffEgrulInn"):
-           table.find('span', id="ctl00_cphBody_diffEgrulInn").decompose()
-        #if table.find('span', 'diff-sign pointer'):
-        #    table.find_all('span', 'diff-sign pointer').decompose()
-        else:
-            data.append(str(item.text))
-    return data
+    if soup.find('table', 'au'):
+        table = soup.find('table', 'au')  # Берем нужную табличку
+        table.find('tr', id='ctl00_cphBody_trFullName').decompose()
+        table.find('tr', id="ctl00_cphBody_trOkopf").decompose()
+        tr = table.find_all('span')
+        for item in tr:
+            if table.find('span', id="ctl00_cphBody_diffEgrulShortName"):
+               table.find('span', id="ctl00_cphBody_diffEgrulShortName").decompose()
+            elif table.find('span', id="ctl00_cphBody_diffEgrulInn"):
+               table.find('span', id="ctl00_cphBody_diffEgrulInn").decompose()
+            else:
+                data.append(str(item.text))
+        return data
 
 
 # Передача данных в БД
@@ -125,30 +128,28 @@ def dataExport(data):
         db_cursor.execute(s, data)
         db_conn.commit()
     except Exception:
-        #pass
-        uploaderrors+=1
-    else:
         pass
 
 
 links = []
+#dataSet будет нужен в случае, если будем собирать все данные в один массив и отправлять тоже в один заход
 dataSet = []
 data = []
 errors = 1
-uploaderrors=0
 changedata = True
 
 for i in tqdm(range(50), desc="Парсим ссылки..."):
     payload = changePage(i + 1)
     link = POSTrequest(payload)
 #Во время парсинга в случае высокой нагрузки даем серверу немного передохнуть, но не сбавляем общий темп
-for i in tqdm(range(len(links)), desc="Парсим данные..."):  # range(len(links)
+for i in tqdm(range(len(links)), desc="Парсим данные..."):
     if changedata == True:
         proxy = proxyBuilder()
         cookie = {"bankrotcookie": cookiecrawler.cookieCrawling(links[i], proxy)}
         changedata = False
     try:
         data = GETrequest(links[i], cookie, proxy)
+        dataExport(data)
     except Exception:
         time.sleep(5)
         errors += 1
@@ -156,6 +157,7 @@ for i in tqdm(range(len(links)), desc="Парсим данные..."):  # range(
         cookie = {"bankrotcookie": cookiecrawler.cookieCrawling(links[i], proxy)}
         try:
             data = GETrequest(links[i], cookie, proxy)
+            dataExport(data)
         except Exception:
             time.sleep(10)
             errors += 1
@@ -163,6 +165,7 @@ for i in tqdm(range(len(links)), desc="Парсим данные..."):  # range(
             cookie = {"bankrotcookie": cookiecrawler.cookieCrawling(links[i], proxy)}
             try:
                 data = GETrequest(links[i], cookie, proxy)
+                dataExport(data)
             except Exception:
                 time.sleep(60)
                 errors += 1
@@ -170,6 +173,7 @@ for i in tqdm(range(len(links)), desc="Парсим данные..."):  # range(
                 cookie = {"bankrotcookie": cookiecrawler.cookieCrawling(links[i], proxy)}
                 try:
                     data = GETrequest(links[i], cookie, proxy)
+                    dataExport(data)
                 except Exception:
                     time.sleep(120)
                     errors += 1
@@ -177,21 +181,12 @@ for i in tqdm(range(len(links)), desc="Парсим данные..."):  # range(
                     cookie = {"bankrotcookie": cookiecrawler.cookieCrawling(links[i], proxy)}
                     data = GETrequest(links[i], cookie, proxy)
                     dataExport(data)
-                else:
-                    dataExport(data)
-            else:
-                dataExport(data)
-        else:
-            dataExport(data)
-    else:
-        dataExport(data)
     finally:
-        f = open("DebstorSearchBackup.csv", "w+")
-        f.close()
-        with open("DebstorSearchBackup.csv", 'a') as outcsv:
-            writer = csv.writer(outcsv, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL, lineterminator='\n')
+        #Реализация создания бэкапа спаршенных данных
+        #with open("DebstorSearchBackup.csv", 'a') as outcsv:
+        #    writer = csv.writer(outcsv, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL, lineterminator='\n')
             #for item in dataSet:
-            writer.writerow([data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8]])
+        #    writer.writerow([data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8]])
 
 try:
     #for i in tqdm(range(len(dataSet)), desc="Отправляем данные..."):
@@ -200,11 +195,8 @@ try:
 except Exception:
     print('Произошли проблемы с выгрузкой данных в БД. Обработанные данные были записаны в DebstorSearchBackup.csv')
 else:
-    print("Парсинг прошел успешно!\nКоличество подмен ip и cookie: ", errors,"Количество ошибок при записи: ",uploaderrors)
+    print("Парсинг прошел успешно!\nКоличество подмен ip и cookie: ", errors)
 finally:
     db_cursor.close()
     db_conn.close()
     m = input('Нажмите Enter для выхода :)')
-
-# with open('ya.html', 'w', encoding='utf-8') as output_file:
-#  output_file.write(response.text)

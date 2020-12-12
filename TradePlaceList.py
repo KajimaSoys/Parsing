@@ -3,13 +3,16 @@ import requests
 import psycopg2
 from tqdm import tqdm
 import random
+import cookiecrawler
+import time
+import csv
 
 #db_params
 t_host = "127.0.0.1"
 t_port = "5432"
 t_dbname = "FedResParsing"
 t_user = "postgres"
-t_pw = "Vagexyo687"
+t_pw = ""#password
 db_conn = psycopg2.connect( host = t_host , port=t_port , dbname = t_dbname , user = t_user , password = t_pw )
 db_cursor = db_conn.cursor( )
 
@@ -32,20 +35,10 @@ headersPOST = {
   'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
   'cookie': '_ym_uid=160641223615957864; _ym_d=1606412236; ASP.NET_SessionId=p4blqqghm0dnzfyhmygu55wk; _ym_isad=1; debtorsearch=typeofsearch=Organizations&orgname=robots&orgaddress=&orgregionid=&orgogrn=&orginn=&orgokpo=&OrgCategory=&prslastname=&prsfirstname=&prsmiddlename=&prsaddress=&prsregionid=&prsinn=&prsogrn=&prssnils=&PrsCategory=&pagenumber=0; bankrotcookie=6a0272eeb725e4f44a31ed445a2c267b; _ym_visorc=w; TradePlaceList=Name=&Site=&PageIndex=2&SroTradePlaceId=&SroEtpNameKey=; debtorsearch=typeofsearch=Organizations&orgname=&orgaddress=&orgregionid=&orgogrn=&orginn=&orgokpo=&OrgCategory=&prslastname=&prsfirstname=&prsmiddlename=&prsaddress=&prsregionid=&prsinn=&prsogrn=&prssnils=&PrsCategory=&pagenumber=20; TradePlaceList=Name=&Site=&PageIndex=1&SroTradePlaceId=&SroEtpNameKey='
 }
-headersGET = {
-  'authority': 'bankrot.fedresurs.ru',
-  'upgrade-insecure-requests': '1',
-  'user-agent': 'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36',
-  'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-  'sec-fetch-site': 'none',
-  'sec-fetch-mode': 'navigate',
-  'sec-fetch-dest': 'document',
-  'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-  'cookie': '_ym_uid=160641223615957864; _ym_d=1606412236; ASP.NET_SessionId=p4blqqghm0dnzfyhmygu55wk; _ym_isad=1; debtorsearch=typeofsearch=Organizations&orgname=robots&orgaddress=&orgregionid=&orgogrn=&orginn=&orgokpo=&OrgCategory=&prslastname=&prsfirstname=&prsmiddlename=&prsaddress=&prsregionid=&prsinn=&prsogrn=&prssnils=&PrsCategory=&pagenumber=0; bankrotcookie=6a0272eeb725e4f44a31ed445a2c267b; _ym_visorc=w; TradePlaceList=Name=&Site=&PageIndex=1&SroTradePlaceId=&SroEtpNameKey=; debtorsearch=typeofsearch=Organizations&orgname=&orgaddress=&orgregionid=&orgogrn=&orginn=&orgokpo=&OrgCategory=&prslastname=&prsfirstname=&prsmiddlename=&prsaddress=&prsregionid=&prsinn=&prsogrn=&prssnils=&PrsCategory=&pagenumber=20; TradePlaceList=Name=&Site=&PageIndex=1&SroTradePlaceId=&SroEtpNameKey='
-}
+
 #proxy_params
 username = 'lum-customer-hl_1bb7049f-zone-fedres_parser'
-password = 'arens2gk6cd7'
+password = ''#password
 port = 22225
 
 def newSession():
@@ -83,9 +76,9 @@ def POSTrequest(payload):
             else:
                 pass
 
-def GETrequest(link):
+def GETrequest(link,cookie, proxy):
     payload={}
-    response = requests.request("GET", link, headers=headersGET, data=payload)
+    response = requests.request("GET", link, cookies=cookie, data=payload, proxies=proxy)
     data=dataParse(response)
     data.append(link)
     return data
@@ -98,7 +91,6 @@ def dataParse(response):
         if item.find('tr', id='ctl00_cphBody_trTrades'):
             item.find('tr', id='ctl00_cphBody_trTrades').decompose()
         tr=item.find_all('tr')
-
         for k in tr:
                 if k.find('a'):
                     if k.find('a',id='ctl00_cphBody_aSroEtp'):
@@ -129,17 +121,66 @@ def dataExport(data):
 links=[]
 dataSet=[]
 data=[]
+errors = 1
+changedata = True
+
 for i in tqdm(range(4), desc="Парсим ссылки..."):
     payload=changePage(i+1)
     POSTrequest(payload)
 
-for i in tqdm(range(len(links)),desc="Парсим данные..."):
-    data=GETrequest(links[i])
-    dataSet.append(data)
+for i in tqdm(range(len(links)),desc="Парсим данные..."):#len(links)
+    if changedata == True:
+        proxy = proxyBuilder()
+        cookie = {"bankrotcookie": cookiecrawler.cookieCrawling(links[i], proxy)}
+        changedata = False
+    try:
+        data = GETrequest(links[i], cookie, proxy)
+        dataExport(data)
+    except Exception:
+        time.sleep(5)
+        errors += 1
+        proxy = proxyBuilder()
+        cookie = {"bankrotcookie": cookiecrawler.cookieCrawling(links[i], proxy)}
+        try:
+            data = GETrequest(links[i], cookie, proxy)
+            dataExport(data)
+        except Exception:
+            time.sleep(10)
+            errors += 1
+            proxy = proxyBuilder()
+            cookie = {"bankrotcookie": cookiecrawler.cookieCrawling(links[i], proxy)}
+            try:
+                data = GETrequest(links[i], cookie, proxy)
+                dataExport(data)
+            except Exception:
+                time.sleep(60)
+                errors += 1
+                proxy = proxyBuilder()
+                cookie = {"bankrotcookie": cookiecrawler.cookieCrawling(links[i], proxy)}
+                try:
+                    data = GETrequest(links[i], cookie, proxy)
+                    dataExport(data)
+                except Exception:
+                    time.sleep(120)
+                    errors += 1
+                    proxy = proxyBuilder()
+                    cookie = {"bankrotcookie": cookiecrawler.cookieCrawling(links[i], proxy)}
+                    data = GETrequest(links[i], cookie, proxy)
+                    dataExport(data)
+
+    #finally:
+        #f = open("TradePlaceList.csv", "w+")
+        #f.close()
+        #with open("TradePlaceList.csv", 'a') as outcsv:
+            #writer = csv.writer(outcsv, delimiter=',', quotechar='|', quoting=csv.QUOTE_MINIMAL, lineterminator='\n')
+            #for item in dataSet:
+            #writer.writerow([data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8],data[9]])
+
 
 try:
-    for i in tqdm(range(len(dataSet)),desc="Отправляем данные..."):
-        dataExport(dataSet[i])
+    #for i in tqdm(range(len(dataSet)),desc="Отправляем данные..."):
+        #dataExport(dataSet[i])
+    pass
 except Exception:
     print('Произошли проблемы с выгрузкой данных в БД. Скорее всего было отправлено слишком много запросов на fedresurs.ru и парсер не смог считать необходимые данные. Повторите попытку позднее!')
 else:
@@ -148,8 +189,6 @@ finally:
     db_cursor.close()
     db_conn.close()
     m=input('Нажмите Enter для выхода :)')
-
-
 
 #with open('ya.html', 'w', encoding='utf-8') as output_file:
 #  output_file.write(response.text)

@@ -20,7 +20,5 @@ def cookieCrawling(link,proxy):
         return test_cookie
     else:
         return test_cookie
-    #    time.sleep(3)
-    #    cookieCrawling(link,proxy)
-    #else:
+
     
